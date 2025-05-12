@@ -18,6 +18,11 @@ struct ThemeColor: Identifiable {
         case "绿色": return .green
         case "紫色": return .purple
         case "橙色": return .orange
+        case "黄色": return .yellow
+        case "青色": return .cyan
+        case "粉色": return .pink
+        case "棕色": return .brown
+        case "灰色": return .gray
         default: return .blue
         }
     }
@@ -31,7 +36,12 @@ struct ThemeColor: Identifiable {
         ThemeColor(name: "红色"),
         ThemeColor(name: "绿色"),
         ThemeColor(name: "紫色"),
-        ThemeColor(name: "橙色")
+        ThemeColor(name: "橙色"),
+        ThemeColor(name: "黄色"),
+        ThemeColor(name: "青色"),
+        ThemeColor(name: "粉色"),
+        ThemeColor(name: "棕色"),
+        ThemeColor(name: "灰色")
     ]
 }
 
