@@ -289,9 +289,108 @@ struct StatsView: View {
     let decimalPlaces: Int
     @Environment(\.presentationMode) var presentationMode
     
+    // 基本统计
     var average: Double {
         guard !history.isEmpty else { return 0 }
         return history.map { $0.number }.reduce(0, +) / Double(history.count)
+    }
+    
+    var median: Double {
+        guard !history.isEmpty else { return 0 }
+        let sorted = history.map { $0.number }.sorted()
+        let count = sorted.count
+        if count % 2 == 0 {
+            return (sorted[count/2 - 1] + sorted[count/2]) / 2
+        } else {
+            return sorted[count/2]
+        }
+    }
+    
+    var mode: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let counts = numbers.reduce(into: [:]) { counts, number in
+            counts[number, default: 0] += 1
+        }
+        return counts.max(by: { $0.value < $1.value })?.key ?? 0
+    }
+    
+    // 方差和标准差
+    var variance: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let mean = average
+        return numbers.reduce(0) { $0 + pow($1 - mean, 2) } / Double(numbers.count)
+    }
+    
+    var standardDeviation: Double {
+        sqrt(variance)
+    }
+    
+    // 四分位数
+    var quartiles: (q1: Double, q2: Double, q3: Double) {
+        guard !history.isEmpty else { return (0, 0, 0) }
+        let sorted = history.map { $0.number }.sorted()
+        let count = sorted.count
+        
+        let q2 = median
+        
+        // 安全地获取下半部分和上半部分
+        let midPoint = count / 2
+        let lowerHalf = Array(sorted[0..<midPoint])
+        let upperHalf = Array(sorted[(midPoint + (count % 2 == 0 ? 0 : 1))..<count])
+        
+        // 安全地计算 Q1
+        let q1: Double
+        if lowerHalf.isEmpty {
+            q1 = sorted[0]
+        } else if lowerHalf.count == 1 {
+            q1 = lowerHalf[0]
+        } else {
+            let lowerMid = lowerHalf.count / 2
+            q1 = lowerHalf.count % 2 == 0
+                ? (lowerHalf[lowerMid - 1] + lowerHalf[lowerMid]) / 2
+                : lowerHalf[lowerMid]
+        }
+        
+        // 安全地计算 Q3
+        let q3: Double
+        if upperHalf.isEmpty {
+            q3 = sorted[count - 1]
+        } else if upperHalf.count == 1 {
+            q3 = upperHalf[0]
+        } else {
+            let upperMid = upperHalf.count / 2
+            q3 = upperHalf.count % 2 == 0
+                ? (upperHalf[upperMid - 1] + upperHalf[upperMid]) / 2
+                : upperHalf[upperMid]
+        }
+        
+        return (q1, q2, q3)
+    }
+    
+    // 偏度
+    var skewness: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let mean = average
+        let std = standardDeviation
+        let n = Double(numbers.count)
+        
+        let sumCubedDeviations = numbers.reduce(0) { $0 + pow($1 - mean, 3) }
+        return (sumCubedDeviations / n) / pow(std, 3)
+    }
+    
+    // 峰度
+    var kurtosis: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let mean = average
+        let std = standardDeviation
+        let n = Double(numbers.count)
+        
+        let sumQuarticDeviations = numbers.reduce(0) { $0 + pow($1 - mean, 4) }
+        return (sumQuarticDeviations / n) / pow(std, 4) - 3 // 减3得到超额峰度
     }
     
     var min: Double {
@@ -302,14 +401,51 @@ struct StatsView: View {
         history.map { $0.number }.max() ?? 0
     }
     
+    var range: Double {
+        max - min
+    }
+    
     var body: some View {
         NavigationView {
             List {
-                Section(header: Text("统计信息")) {
+                Section(header: Text("基本统计")) {
                     StatRow(title: "平均值", value: average)
+                    StatRow(title: "中位数", value: median)
+                    StatRow(title: "众数", value: mode)
                     StatRow(title: "最小值", value: min)
                     StatRow(title: "最大值", value: max)
+                    StatRow(title: "范围", value: range)
+                }
+                
+                Section(header: Text("离散程度")) {
+                    StatRow(title: "方差", value: variance)
+                    StatRow(title: "标准差", value: standardDeviation)
+                }
+                
+                Section(header: Text("四分位数")) {
+                    StatRow(title: "第一四分位数 (Q1)", value: quartiles.q1)
+                    StatRow(title: "第二四分位数 (Q2)", value: quartiles.q2)
+                    StatRow(title: "第三四分位数 (Q3)", value: quartiles.q3)
+                    StatRow(title: "四分位距 (IQR)", value: quartiles.q3 - quartiles.q1)
+                }
+                
+                Section(header: Text("分布特征")) {
+                    StatRow(title: "偏度", value: skewness)
+                    StatRow(title: "峰度", value: kurtosis)
                     StatRow(title: "生成次数", value: Double(history.count))
+                }
+                
+                if !history.isEmpty {
+                    Section(header: Text("最近生成")) {
+                        ForEach(history.prefix(3)) { item in
+                            HStack {
+                                Text(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", item.number))
+                                Spacer()
+                                Text(item.timestamp, style: .time)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
                 }
             }
             .navigationTitle("统计")
