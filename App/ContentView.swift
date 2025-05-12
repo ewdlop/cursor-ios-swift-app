@@ -405,6 +405,53 @@ struct StatsView: View {
         max - min
     }
     
+    // 变异系数 (CV)
+    var coefficientOfVariation: Double {
+        guard !history.isEmpty, average != 0 else { return 0 }
+        return standardDeviation / abs(average)
+    }
+    
+    // 几何平均数
+    var geometricMean: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let product = numbers.reduce(1.0) { $0 * $1 }
+        return pow(product, 1.0 / Double(numbers.count))
+    }
+    
+    // 调和平均数
+    var harmonicMean: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let sumOfReciprocals = numbers.reduce(0.0) { $0 + (1.0 / $1) }
+        return Double(numbers.count) / sumOfReciprocals
+    }
+    
+    // 中位数绝对偏差 (MAD)
+    var medianAbsoluteDeviation: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let deviations = numbers.map { abs($0 - median) }
+        let sortedDeviations = deviations.sorted()
+        let count = sortedDeviations.count
+        if count % 2 == 0 {
+            return (sortedDeviations[count/2 - 1] + sortedDeviations[count/2]) / 2
+        } else {
+            return sortedDeviations[count/2]
+        }
+    }
+    
+    // 样本熵
+    var sampleEntropy: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let uniqueNumbers = Set(numbers)
+        let probabilities = uniqueNumbers.map { number in
+            Double(numbers.filter { $0 == number }.count) / Double(numbers.count)
+        }
+        return -probabilities.reduce(0) { $0 + $1 * log2($1) }
+    }
+    
     var body: some View {
         NavigationView {
             List {
@@ -420,6 +467,13 @@ struct StatsView: View {
                 Section(header: Text("离散程度")) {
                     StatRow(title: "方差", value: variance)
                     StatRow(title: "标准差", value: standardDeviation)
+                    StatRow(title: "变异系数", value: coefficientOfVariation)
+                    StatRow(title: "中位数绝对偏差", value: medianAbsoluteDeviation)
+                }
+                
+                Section(header: Text("其他平均数")) {
+                    StatRow(title: "几何平均数", value: geometricMean)
+                    StatRow(title: "调和平均数", value: harmonicMean)
                 }
                 
                 Section(header: Text("四分位数")) {
@@ -432,6 +486,7 @@ struct StatsView: View {
                 Section(header: Text("分布特征")) {
                     StatRow(title: "偏度", value: skewness)
                     StatRow(title: "峰度", value: kurtosis)
+                    StatRow(title: "样本熵", value: sampleEntropy)
                     StatRow(title: "生成次数", value: Double(history.count))
                 }
                 
