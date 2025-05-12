@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import Charts
+import Foundation
 
 struct HistoryItem: Identifiable {
     let id = UUID()
@@ -59,6 +61,7 @@ struct ContentView: View {
     @State private var isDecimalMode = false
     @State private var decimalPlaces: Double = 2
     @State private var showingStats = false
+    @State private var showingCharts = false
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.presentationMode) var presentationMode
     
@@ -105,6 +108,14 @@ struct ContentView: View {
                                 .font(.title2)
                                 .foregroundColor(selectedThemeColor.color)
                         }
+                        
+                        Button(action: {
+                            showingCharts.toggle()
+                        }) {
+                            Image(systemName: "chart.xyaxis.line")
+                                .font(.title2)
+                                .foregroundColor(selectedThemeColor.color)
+                        }
                     }
                 }
                 
@@ -138,10 +149,10 @@ struct ContentView: View {
                             .font(.headline)
                     }
                     
-                    Slider(value: $minNumber, in: 1...maxNumber, step: isDecimalMode ? pow(0.1, decimalPlaces) : 1)
+                    Slider(value: $minNumber, in: 1...maxNumber, step: isDecimalMode ? Foundation.pow(0.1, decimalPlaces) : 1)
                         .accentColor(selectedThemeColor.color)
                         .onChange(of: minNumber) { _ in saveSettings() }
-                    Slider(value: $maxNumber, in: minNumber...1000, step: isDecimalMode ? pow(0.1, decimalPlaces) : 1)
+                    Slider(value: $maxNumber, in: minNumber...1000, step: isDecimalMode ? Foundation.pow(0.1, decimalPlaces) : 1)
                         .accentColor(selectedThemeColor.color)
                         .onChange(of: maxNumber) { _ in saveSettings() }
                 }
@@ -204,6 +215,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingStats) {
                 StatsView(history: history, isDecimalMode: isDecimalMode, decimalPlaces: Int(decimalPlaces))
+            }
+            .sheet(isPresented: $showingCharts) {
+                ChartView(history: history, isDecimalMode: isDecimalMode, decimalPlaces: Int(decimalPlaces))
             }
             .alert("已复制", isPresented: $showingCopiedAlert) {
                 Button("确定", role: .cancel) { }
@@ -330,7 +344,7 @@ struct StatsView: View {
         guard !history.isEmpty else { return 0 }
         let numbers = history.map { $0.number }
         let mean = average
-        return numbers.reduce(0) { $0 + pow($1 - mean, 2) } / Double(numbers.count)
+        return numbers.reduce(0) { $0 + Foundation.pow($1 - mean, 2) } / Double(numbers.count)
     }
     
     var standardDeviation: Double {
@@ -387,8 +401,8 @@ struct StatsView: View {
         let std = standardDeviation
         let n = Double(numbers.count)
         
-        let sumCubedDeviations = numbers.reduce(0) { $0 + pow($1 - mean, 3) }
-        return (sumCubedDeviations / n) / pow(std, 3)
+        let sumCubedDeviations = numbers.reduce(0) { $0 + Foundation.pow($1 - mean, 3) }
+        return (sumCubedDeviations / n) / Foundation.pow(std, 3)
     }
     
     // 峰度
@@ -399,8 +413,8 @@ struct StatsView: View {
         let std = standardDeviation
         let n = Double(numbers.count)
         
-        let sumQuarticDeviations = numbers.reduce(0) { $0 + pow($1 - mean, 4) }
-        return (sumQuarticDeviations / n) / pow(std, 4) - 3 // 减3得到超额峰度
+        let sumQuarticDeviations = numbers.reduce(0) { $0 + Foundation.pow($1 - mean, 4) }
+        return (sumQuarticDeviations / n) / Foundation.pow(std, 4) - 3 // 减3得到超额峰度
     }
     
     var min: Double {
@@ -426,7 +440,7 @@ struct StatsView: View {
         guard !history.isEmpty else { return 0 }
         let numbers = history.map { $0.number }
         let product = numbers.reduce(1.0) { $0 * $1 }
-        return pow(product, 1.0 / Double(numbers.count))
+        return Foundation.pow(product, 1.0 / Double(numbers.count))
     }
     
     // 调和平均数
@@ -539,10 +553,114 @@ struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        return controller
     }
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+struct ChartView: View {
+    let history: [HistoryItem]
+    let isDecimalMode: Bool
+    let decimalPlaces: Int
+    @Environment(\.presentationMode) var presentationMode
+    
+    // 直方图数据
+    var histogramData: [(range: String, count: Int)] {
+        guard !history.isEmpty else { return [] }
+        let numbers = history.map { $0.number }
+        let minValue = numbers.min() ?? 0
+        let maxValue = numbers.max() ?? 1
+        let range = maxValue - minValue
+        let binCount = Swift.min(10, history.count)
+        let binSize = range / Double(binCount)
+        
+        var bins = Array(repeating: 0, count: binCount)
+        for number in numbers {
+            let binIndex = Swift.min(Int((number - minValue) / binSize), binCount - 1)
+            bins[binIndex] += 1
+        }
+        
+        return bins.enumerated().map { index, count in
+            let start = minValue + Double(index) * binSize
+            let end = start + binSize
+            return (
+                range: String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f-%.\(Int(decimalPlaces))f" : "%.0f-%.0f", start, end),
+                count: count
+            )
+        }
+    }
+    
+    // 箱型图数据
+    var boxPlotData: (min: Double, q1: Double, median: Double, q3: Double, max: Double) {
+        guard !history.isEmpty else { return (0, 0, 0, 0, 0) }
+        let numbers = history.map { $0.number }.sorted()
+        let count = numbers.count
+        
+        let min = numbers.first!
+        let max = numbers.last!
+        let median = count % 2 == 0
+            ? (numbers[count/2 - 1] + numbers[count/2]) / 2
+            : numbers[count/2]
+        
+        let q1 = count % 2 == 0
+            ? (numbers[count/4 - 1] + numbers[count/4]) / 2
+            : numbers[count/4]
+        
+        let q3 = count % 2 == 0
+            ? (numbers[3*count/4 - 1] + numbers[3*count/4]) / 2
+            : numbers[3*count/4]
+        
+        return (min, q1, median, q3, max)
+    }
+    
+    // 趋势图数据
+    var trendData: [(date: Date, value: Double)] {
+        history.map { ($0.timestamp, $0.number) }
+    }
+    
+    var body: some View {
+        NavigationView {
+            List {
+                Section(header: Text("分布直方图")) {
+                    Chart(histogramData, id: \.range) { item in
+                        BarMark(
+                            x: .value("范围", item.range),
+                            y: .value("频数", item.count)
+                        )
+                    }
+                    .frame(height: 200)
+                }
+                
+                Section(header: Text("箱型图")) {
+                    let boxData = boxPlotData
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("最小值: \(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", boxData.min))")
+                        Text("Q1: \(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", boxData.q1))")
+                        Text("中位数: \(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", boxData.median))")
+                        Text("Q3: \(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", boxData.q3))")
+                        Text("最大值: \(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", boxData.max))")
+                    }
+                    .padding()
+                }
+                
+                Section(header: Text("趋势图")) {
+                    Chart(trendData, id: \.date) { item in
+                        LineMark(
+                            x: .value("时间", item.date),
+                            y: .value("数值", item.value)
+                        )
+                    }
+                    .frame(height: 200)
+                }
+            }
+            .navigationTitle("数据可视化")
+            .navigationBarItems(trailing: Button("完成") {
+                presentationMode.wrappedValue.dismiss()
+            })
+        }
+    }
 }
 
 #Preview {
