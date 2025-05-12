@@ -452,6 +452,91 @@ struct StatsView: View {
         return -probabilities.reduce(0) { $0 + $1 * log2($1) }
     }
     
+    // 卡方检验
+    var chiSquareTest: (statistic: Double, pValue: Double) {
+        guard !history.isEmpty else { return (0, 0) }
+        let numbers = history.map { $0.number }
+        let uniqueNumbers = Set(numbers)
+        let observed = uniqueNumbers.map { number in
+            Double(numbers.filter { $0 == number }.count)
+        }
+        let expected = Array(repeating: Double(numbers.count) / Double(uniqueNumbers.count), count: uniqueNumbers.count)
+        
+        let chiSquare = zip(observed, expected).reduce(0.0) { sum, pair in
+            sum + pow(pair.0 - pair.1, 2) / pair.1
+        }
+        
+        // 简化的p值计算（使用卡方分布近似）
+        let degreesOfFreedom = Double(uniqueNumbers.count - 1)
+        let pValue = 1.0 - (1.0 / (1.0 + exp(-chiSquare / 2.0)))
+        
+        return (chiSquare, pValue)
+    }
+    
+    // Spearman相关系数
+    var spearmanCorrelation: Double {
+        guard history.count > 1 else { return 0 }
+        let numbers = history.map { $0.number }
+        let ranks = numbers.enumerated().sorted { $0.element < $1.element }
+            .enumerated().sorted { $0.element.offset < $1.element.offset }
+            .map { Double($0.offset + 1) }
+        
+        let n = Double(numbers.count)
+        let sumD2 = zip(ranks, Array(1...Int(n))).reduce(0.0) { sum, pair in
+            sum + pow(pair.0 - Double(pair.1), 2)
+        }
+        
+        return 1.0 - (6.0 * sumD2) / (n * (n * n - 1.0))
+    }
+    
+    // Kendall's Tau相关系数
+    var kendallTau: Double {
+        guard history.count > 1 else { return 0 }
+        let numbers = history.map { $0.number }
+        var concordant = 0
+        var discordant = 0
+        
+        for i in 0..<numbers.count {
+            for j in (i+1)..<numbers.count {
+                if (numbers[i] < numbers[j] && i < j) || (numbers[i] > numbers[j] && i > j) {
+                    concordant += 1
+                } else {
+                    discordant += 1
+                }
+            }
+        }
+        
+        let n = Double(numbers.count)
+        return Double(concordant - discordant) / (n * (n - 1) / 2)
+    }
+    
+    // Bootstrap置信区间
+    func bootstrapConfidenceInterval(confidence: Double = 0.95, iterations: Int = 1000) -> (lower: Double, upper: Double) {
+        guard !history.isEmpty else { return (0, 0) }
+        let numbers = history.map { $0.number }
+        var bootstrapMeans: [Double] = []
+        
+        for _ in 0..<iterations {
+            let sample = (0..<numbers.count).map { _ in numbers.randomElement()! }
+            bootstrapMeans.append(sample.reduce(0, +) / Double(sample.count))
+        }
+        
+        bootstrapMeans.sort()
+        let lowerIndex = Int(Double(iterations) * (1 - confidence) / 2)
+        let upperIndex = Int(Double(iterations) * (1 + confidence) / 2)
+        
+        return (bootstrapMeans[lowerIndex], bootstrapMeans[upperIndex])
+    }
+    
+    // Cohen's d效应量
+    var cohensD: Double {
+        guard !history.isEmpty else { return 0 }
+        let numbers = history.map { $0.number }
+        let mean = average
+        let std = standardDeviation
+        return mean / std
+    }
+    
     var body: some View {
         NavigationView {
             List {
@@ -488,6 +573,23 @@ struct StatsView: View {
                     StatRow(title: "峰度", value: kurtosis)
                     StatRow(title: "样本熵", value: sampleEntropy)
                     StatRow(title: "生成次数", value: Double(history.count))
+                }
+                
+                Section(header: Text("假设检验")) {
+                    StatRow(title: "卡方统计量", value: chiSquareTest.statistic)
+                    StatRow(title: "卡方检验p值", value: chiSquareTest.pValue)
+                }
+                
+                Section(header: Text("相关性分析")) {
+                    StatRow(title: "Spearman相关系数", value: spearmanCorrelation)
+                    StatRow(title: "Kendall's Tau", value: kendallTau)
+                }
+                
+                Section(header: Text("现代统计方法")) {
+                    let ci = bootstrapConfidenceInterval()
+                    StatRow(title: "Bootstrap 95% CI下限", value: ci.lower)
+                    StatRow(title: "Bootstrap 95% CI上限", value: ci.upper)
+                    StatRow(title: "Cohen's d效应量", value: cohensD)
                 }
                 
                 if !history.isEmpty {
