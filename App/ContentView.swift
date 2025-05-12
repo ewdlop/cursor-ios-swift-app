@@ -7,10 +7,10 @@ struct HistoryItem: Identifiable {
     let timestamp: Date
 }
 
-struct ThemeColor: Identifiable, Codable {
+struct ThemeColor: Identifiable {
     let id = UUID()
     let name: String
-
+    
     var color: Color {
         switch name {
         case "蓝色": return .blue
@@ -21,13 +21,11 @@ struct ThemeColor: Identifiable, Codable {
         default: return .blue
         }
     }
-
+    
     static func themeColor(for name: String) -> ThemeColor {
         ThemeColor(name: name)
     }
-}
-
-extension Color {
+    
     static let themeColors: [ThemeColor] = [
         ThemeColor(name: "蓝色"),
         ThemeColor(name: "红色"),
@@ -44,17 +42,17 @@ struct ContentView: View {
     @State private var isAnimating = false
     @State private var history: [HistoryItem] = []
     @State private var isDarkMode = false
-    @State private var selectedThemeColor: ThemeColor = .themeColors[0]
+    @State private var selectedThemeColor: ThemeColor = ThemeColor.themeColors[0]
     @State private var showingColorPicker = false
     @State private var showingShareSheet = false
     @State private var showingCopiedAlert = false
     @Environment(\.colorScheme) var colorScheme
-
+    
     private let minNumberKey = "minNumber"
     private let maxNumberKey = "maxNumber"
     private let isDarkModeKey = "isDarkMode"
     private let themeColorKey = "themeColor"
-
+    
     var body: some View {
         NavigationView {
             VStack(spacing: 30) {
@@ -63,16 +61,29 @@ struct ContentView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .foregroundColor(selectedThemeColor.color)
+                    
                     Spacer()
-                    Button(action: {
-                        isDarkMode.toggle()
-                    }) {
-                        Image(systemName: isDarkMode ? "sun.max.fill" : "moon.fill")
-                            .font(.title2)
-                            .foregroundColor(selectedThemeColor.color)
+                    
+                    HStack(spacing: 15) {
+                        Button(action: {
+                            showingColorPicker.toggle()
+                        }) {
+                            Image(systemName: "paintpalette.fill")
+                                .font(.title2)
+                                .foregroundColor(selectedThemeColor.color)
+                        }
+                        
+                        Button(action: {
+                            isDarkMode.toggle()
+                            saveSettings()
+                        }) {
+                            Image(systemName: isDarkMode ? "sun.max.fill" : "moon.fill")
+                                .font(.title2)
+                                .foregroundColor(selectedThemeColor.color)
+                        }
                     }
                 }
-
+                
                 Text("\(randomNumber)")
                     .font(.system(size: 70, weight: .bold))
                     .foregroundColor(.primary)
@@ -85,13 +96,14 @@ struct ContentView: View {
                         }) {
                             Label("复制", systemImage: "doc.on.doc")
                         }
+                        
                         Button(action: {
                             showingShareSheet = true
                         }) {
                             Label("分享", systemImage: "square.and.arrow.up")
                         }
                     }
-
+                
                 VStack(alignment: .leading, spacing: 15) {
                     HStack {
                         Text("最小值: \(Int(minNumber))")
@@ -100,14 +112,16 @@ struct ContentView: View {
                         Text("最大值: \(Int(maxNumber))")
                             .font(.headline)
                     }
-
+                    
                     Slider(value: $minNumber, in: 1...maxNumber, step: 1)
                         .accentColor(selectedThemeColor.color)
+                        .onChange(of: minNumber) { _ in saveSettings() }
                     Slider(value: $maxNumber, in: minNumber...1000, step: 1)
                         .accentColor(selectedThemeColor.color)
+                        .onChange(of: maxNumber) { _ in saveSettings() }
                 }
                 .padding(.horizontal)
-
+                
                 Button(action: {
                     generateNewNumber()
                 }) {
@@ -121,7 +135,7 @@ struct ContentView: View {
                     .background(selectedThemeColor.color)
                     .cornerRadius(10)
                 }
-
+                
                 if !history.isEmpty {
                     List {
                         Section(header: Text("历史记录")) {
@@ -154,8 +168,11 @@ struct ContentView: View {
             .onAppear(perform: loadSettings)
         }
     }
-
+    
     private func generateNewNumber() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
         withAnimation {
             isAnimating = true
             randomNumber = Int.random(in: Int(minNumber)...Int(maxNumber))
@@ -164,19 +181,19 @@ struct ContentView: View {
                 history.removeLast()
             }
         }
-
+        
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             isAnimating = false
         }
     }
-
+    
     private func saveSettings() {
         UserDefaults.standard.set(minNumber, forKey: minNumberKey)
         UserDefaults.standard.set(maxNumber, forKey: maxNumberKey)
         UserDefaults.standard.set(isDarkMode, forKey: isDarkModeKey)
         try? UserDefaults.standard.setValue(selectedThemeColor.name, forKey: themeColorKey)
     }
-
+    
     private func loadSettings() {
         let minVal = UserDefaults.standard.double(forKey: minNumberKey)
         let maxVal = UserDefaults.standard.double(forKey: maxNumberKey)
@@ -193,10 +210,10 @@ struct ColorPickerView: View {
     @Binding var selectedColor: ThemeColor
     let onDismiss: () -> Void
     @Environment(\.presentationMode) var presentationMode
-
+    
     var body: some View {
         NavigationView {
-            List(Color.themeColors) { themeColor in
+            List(ThemeColor.themeColors) { themeColor in
                 Button(action: {
                     selectedColor = themeColor
                     presentationMode.wrappedValue.dismiss()
@@ -230,11 +247,11 @@ struct ColorPickerView: View {
 
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
-
+    
     func makeUIViewController(context: Context) -> UIActivityViewController {
         UIActivityViewController(activityItems: items, applicationActivities: nil)
     }
-
+    
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
