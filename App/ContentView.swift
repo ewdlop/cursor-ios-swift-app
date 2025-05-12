@@ -565,6 +565,7 @@ struct ChartView: View {
     let isDecimalMode: Bool
     let decimalPlaces: Int
     @Environment(\.presentationMode) var presentationMode
+    @State private var selectedFitType = "正态分布"
     
     // 直方图数据
     var histogramData: [(range: String, count: Int)] {
@@ -620,6 +621,93 @@ struct ChartView: View {
         history.map { ($0.timestamp, $0.number) }
     }
     
+    // 正态分布拟合
+    var normalDistributionFit: (mean: Double, stdDev: Double, rSquared: Double) {
+        guard !history.isEmpty else { return (0, 0, 0) }
+        let numbers = history.map { $0.number }
+        let mean = numbers.reduce(0, +) / Double(numbers.count)
+        let variance = numbers.reduce(0) { $0 + pow($1 - mean, 2) } / Double(numbers.count)
+        let stdDev = sqrt(variance)
+        
+        // 计算R²
+        let histogram = histogramData
+        let totalCount = Double(histogram.reduce(0) { $0 + $1.count })
+        let expectedFreq = histogram.map { range -> Double in
+            let rangeValues = range.range.split(separator: "-").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            guard rangeValues.count == 2 else { return 0 }
+            let lower = rangeValues[0]
+            let upper = rangeValues[1]
+            let p = normalCDF(upper, mean: mean, stdDev: stdDev) - normalCDF(lower, mean: mean, stdDev: stdDev)
+            return p * totalCount
+        }
+        let observedFreq = histogram.map { Double($0.count) }
+        let rSquared = calculateRSquared(observed: observedFreq, expected: expectedFreq)
+        
+        return (mean, stdDev, rSquared)
+    }
+    
+    // 指数分布拟合
+    var exponentialDistributionFit: (lambda: Double, rSquared: Double) {
+        guard !history.isEmpty else { return (0, 0) }
+        let numbers = history.map { $0.number }
+        let mean = numbers.reduce(0, +) / Double(numbers.count)
+        let lambda = 1.0 / mean
+        
+        // 计算R²
+        let histogram = histogramData
+        let totalCount = Double(histogram.reduce(0) { $0 + $1.count })
+        let expectedFreq = histogram.map { range -> Double in
+            let rangeValues = range.range.split(separator: "-").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            guard rangeValues.count == 2 else { return 0 }
+            let lower = rangeValues[0]
+            let upper = rangeValues[1]
+            let p = exp(-lambda * lower) - exp(-lambda * upper)
+            return p * totalCount
+        }
+        let observedFreq = histogram.map { Double($0.count) }
+        let rSquared = calculateRSquared(observed: observedFreq, expected: expectedFreq)
+        
+        return (lambda, rSquared)
+    }
+    
+    // 泊松分布拟合
+    var poissonDistributionFit: (lambda: Double, rSquared: Double) {
+        guard !history.isEmpty else { return (0, 0) }
+        let numbers = history.map { $0.number }
+        let lambda = numbers.reduce(0, +) / Double(numbers.count)
+        
+        // 计算R²
+        let histogram = histogramData
+        let totalCount = Double(histogram.reduce(0) { $0 + $1.count })
+        let expectedFreq = histogram.map { range -> Double in
+            let rangeValues = range.range.split(separator: "-").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            guard rangeValues.count == 2 else { return 0 }
+            let k = Int(round((rangeValues[0] + rangeValues[1]) / 2))
+            let p = pow(lambda, Double(k)) * exp(-lambda) / factorial(k)
+            return p * totalCount
+        }
+        let observedFreq = histogram.map { Double($0.count) }
+        let rSquared = calculateRSquared(observed: observedFreq, expected: expectedFreq)
+        
+        return (lambda, rSquared)
+    }
+    
+    // 辅助函数
+    private func normalCDF(_ x: Double, mean: Double, stdDev: Double) -> Double {
+        return 0.5 * (1 + erf((x - mean) / (stdDev * sqrt(2))))
+    }
+    
+    private func factorial(_ n: Int) -> Double {
+        return (1...n).map { Double($0) }.reduce(1, *)
+    }
+    
+    private func calculateRSquared(observed: [Double], expected: [Double]) -> Double {
+        let meanObserved = observed.reduce(0, +) / Double(observed.count)
+        let ssTotal = observed.reduce(0) { $0 + pow($1 - meanObserved, 2) }
+        let ssResidual = zip(observed, expected).reduce(0) { $0 + pow($1.0 - $1.1, 2) }
+        return 1 - (ssResidual / ssTotal)
+    }
+    
     var body: some View {
         NavigationView {
             List {
@@ -643,6 +731,85 @@ struct ChartView: View {
                         Text("最大值: \(String(format: isDecimalMode ? "%.\(Int(decimalPlaces))f" : "%.0f", boxData.max))")
                     }
                     .padding()
+                }
+                
+                Section(header: Text("分布拟合")) {
+                    Picker("拟合类型", selection: $selectedFitType) {
+                        Text("正态分布").tag("正态分布")
+                        Text("指数分布").tag("指数分布")
+                        Text("泊松分布").tag("泊松分布")
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    .padding(.vertical)
+                    
+                    if selectedFitType == "正态分布" {
+                        let fit = normalDistributionFit
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("均值: \(String(format: "%.2f", fit.mean))")
+                            Text("标准差: \(String(format: "%.2f", fit.stdDev))")
+                            Text("R² = \(String(format: "%.4f", fit.rSquared))")
+                        }
+                        .padding()
+                    } else if selectedFitType == "指数分布" {
+                        let fit = exponentialDistributionFit
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("λ = \(String(format: "%.2f", fit.lambda))")
+                            Text("R² = \(String(format: "%.4f", fit.rSquared))")
+                        }
+                        .padding()
+                    } else {
+                        let fit = poissonDistributionFit
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("λ = \(String(format: "%.2f", fit.lambda))")
+                            Text("R² = \(String(format: "%.4f", fit.rSquared))")
+                        }
+                        .padding()
+                    }
+                    
+                    Chart(histogramData, id: \.range) { item in
+                        BarMark(
+                            x: .value("范围", item.range),
+                            y: .value("频数", item.count)
+                        )
+                        .foregroundStyle(.blue)
+                        
+                        if selectedFitType == "正态分布" {
+                            let fit = normalDistributionFit
+                            let rangeValues = item.range.split(separator: "-").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if rangeValues.count == 2 {
+                                let p = normalCDF(rangeValues[1], mean: fit.mean, stdDev: fit.stdDev) - normalCDF(rangeValues[0], mean: fit.mean, stdDev: fit.stdDev)
+                                LineMark(
+                                    x: .value("范围", item.range),
+                                    y: .value("拟合值", p * Double(history.count))
+                                )
+                                .foregroundStyle(.red)
+                            }
+                        } else if selectedFitType == "指数分布" {
+                            let fit = exponentialDistributionFit
+                            let rangeValues = item.range.split(separator: "-").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if rangeValues.count == 2 {
+                                let p = exp(-fit.lambda * rangeValues[0]) - exp(-fit.lambda * rangeValues[1])
+                                LineMark(
+                                    x: .value("范围", item.range),
+                                    y: .value("拟合值", p * Double(history.count))
+                                )
+                                .foregroundStyle(.red)
+                            }
+                        } else {
+                            let fit = poissonDistributionFit
+                            let rangeValues = item.range.split(separator: "-").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if rangeValues.count == 2 {
+                                let k = Int(round((rangeValues[0] + rangeValues[1]) / 2))
+                                let p = pow(fit.lambda, Double(k)) * exp(-fit.lambda) / factorial(k)
+                                LineMark(
+                                    x: .value("范围", item.range),
+                                    y: .value("拟合值", p * Double(history.count))
+                                )
+                                .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                    .frame(height: 200)
                 }
                 
                 Section(header: Text("趋势图")) {
